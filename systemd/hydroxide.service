@@ -1,0 +1,11 @@
+[Unit]
+Description=Hydroxide Proton Mail bridge (local IMAP/SMTP)
+After=pre-user-session.target
+
+[Service]
+ExecStart=/usr/bin/hydroxide serve
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=user-session.target

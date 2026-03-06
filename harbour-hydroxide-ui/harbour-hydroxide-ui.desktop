@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Hydroxide UI
+Icon=harbour-hydroxide-ui
+Exec=harbour-hydroxide-ui
+X-Nemo-Application-Type=Silica
+
+[X-Sailjail]
+Sandboxing=Disabled
