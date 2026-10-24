@@ -4,11 +4,56 @@ import harbour.hydroxide 1.0
 
 Page {
     id: page
+    objectName: "mainPage"
     allowedOrientations: Orientation.All
-    
+
     property bool revealPassword: false
 
-    BridgeHelper { id: bridge }
+    BridgeHelper {
+        id: bridge
+
+        function navigateToCaptcha(targetUrl) {
+            var url = targetUrl ? targetUrl : bridge.captchaUrl;
+            if (url && url.length > 0) {
+                if (pageStack.currentPage && pageStack.currentPage.objectName === "captchaPage") {
+                    return;
+                }
+                pageStack.push(Qt.resolvedUrl("CaptchaPage.qml"), {
+                    captchaUrl: url,
+                    bridge: bridge
+                });
+            }
+        }
+
+        onCaptchaRequested: {
+            navigateToCaptcha(url);
+        }
+
+        onCaptchaUrlChanged: {
+            if (bridge.captchaUrl && bridge.captchaUrl.length > 0) {
+                navigateToCaptcha(bridge.captchaUrl);
+            }
+        }
+    }
+
+    Connections {
+        target: bridge
+        onCaptchaRequested: {
+            bridge.navigateToCaptcha(url);
+        }
+        onCaptchaUrlChanged: {
+            if (bridge.captchaUrl && bridge.captchaUrl.length > 0) {
+                bridge.navigateToCaptcha(bridge.captchaUrl);
+            }
+        }
+        onBridgePasswordChanged: {
+            if (bridge.bridgePassword && bridge.bridgePassword.length > 0) {
+                if (pageStack.currentPage && pageStack.currentPage.objectName === "captchaPage") {
+                    pageStack.pop();
+                }
+            }
+        }
+    }
 
     SilicaFlickable {
         anchors.fill: parent
@@ -66,7 +111,10 @@ Page {
             width: parent.width
             spacing: Theme.paddingLarge
 
-            PageHeader { title: "Hydroxide" }
+            PageHeader {
+                title: "Hydroxide"
+                description: "ProtonMail Bridge for Sailfish OS"
+            }
 
             SectionHeader { text: "Service" }
 
@@ -84,15 +132,12 @@ Page {
                 Row {
                     width: parent.width
                     spacing: Theme.paddingMedium
-
                     Button { text: "Refresh"; onClicked: bridge.refreshStatus() }
                     Button { text: "Start";   onClicked: bridge.startService() }
                 }
-
                 Row {
                     width: parent.width
                     spacing: Theme.paddingMedium
-
                     Button { text: "Stop";    onClicked: bridge.stopService() }
                     Button { text: "Restart"; onClicked: bridge.restartService() }
                 }
@@ -122,7 +167,6 @@ Page {
                 width: parent.width
                 label: "Proton password"
                 echoMode: revealPassword ? TextInput.Normal : TextInput.Password
-
                 rightItem: IconButton {
                     id: showPass
                     icon.source: revealPassword
@@ -138,14 +182,28 @@ Page {
 
                 Button {
                     id: genButton
-                    text: bridge.busy ? "Working..." : "Generate"
-                    enabled: !bridge.busy
-                    onClicked: bridge.authAndGetBridgePasswordPty(emailField.text, passField.text)
+                    text: {
+                        if (bridge.captchaUrl.length > 0 || bridge.captchaRequired) {
+                            return "Open CAPTCHA";
+                        }
+                        if (bridge.busy) {
+                            return "Working...";
+                        }
+                        return "Generate";
+                    }
+                    enabled: !bridge.busy || bridge.captchaUrl.length > 0 || bridge.captchaRequired
+                    onClicked: {
+                        if (bridge.captchaUrl.length > 0 || bridge.captchaRequired) {
+                            bridge.navigateToCaptcha(bridge.captchaUrl);
+                        } else {
+                            bridge.authAndGetBridgePassword(emailField.text, passField.text);
+                        }
+                    }
                 }
 
                 BusyIndicator {
-                    running: bridge.busy
-                    visible: bridge.busy
+                    running: bridge.busy && !bridge.captchaRequired && bridge.captchaUrl.length === 0
+                    visible: running
                     size: BusyIndicatorSize.Small
                     anchors.verticalCenter: genButton.verticalCenter
                 }
@@ -155,9 +213,91 @@ Page {
                     text: "Copy"
                     enabled: bridge.bridgePassword.length > 0
                     onClicked: {
-                        bridge.copyToClipboard(bridge.bridgePassword)
-                        // Optional: clear password field for safety
-                        // passField.text = ""
+                        bridge.copyToClipboard(bridge.bridgePassword);
+                    }
+                }
+            }
+
+            // Notice card when 127.0.0.1 verification address is available
+            Rectangle {
+                x: Theme.horizontalPageMargin
+                width: parent.width - 2*x
+                height: captchaCol.height + Theme.paddingMedium * 2
+                radius: Theme.paddingSmall
+                color: Theme.rgba(Theme.highlightBackgroundColor, 0.2)
+                border.color: Theme.highlightColor
+                border.width: 1
+                visible: bridge.captchaUrl.length > 0 || bridge.captchaRequired
+
+                Column {
+                    id: captchaCol
+                    anchors.centerIn: parent
+                    width: parent.width - Theme.paddingLarge * 2
+                    spacing: Theme.paddingSmall
+
+                    Label {
+                        width: parent.width
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.highlightColor
+                        font.bold: true
+                        text: "Proton human verification required"
+                    }
+
+                    Label {
+                        width: parent.width
+                        font.pixelSize: Theme.fontSizeExtraSmall
+                        color: Theme.primaryColor
+                        text: bridge.captchaUrl.length > 0 ? ("Address: " + bridge.captchaUrl) : "Local verification server starting..."
+                        wrapMode: Text.Wrap
+                    }
+
+                    Button {
+                        text: "Open CAPTCHA in WebView"
+                        onClicked: {
+                            bridge.navigateToCaptcha(bridge.captchaUrl);
+                        }
+                    }
+                }
+            }
+
+            // Bridge password card when replied
+            Rectangle {
+                x: Theme.horizontalPageMargin
+                width: parent.width - 2*x
+                height: pwCol.height + Theme.paddingMedium * 2
+                radius: Theme.paddingSmall
+                color: Theme.rgba(Theme.primaryColor, 0.15)
+                border.color: Theme.highlightColor
+                border.width: 1
+                visible: bridge.bridgePassword.length > 0
+
+                Column {
+                    id: pwCol
+                    anchors.centerIn: parent
+                    width: parent.width - Theme.paddingLarge * 2
+                    spacing: Theme.paddingSmall
+
+                    Label {
+                        width: parent.width
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.highlightColor
+                        text: "Bridge password replied:"
+                    }
+
+                    Label {
+                        width: parent.width
+                        font.pixelSize: Theme.fontSizeMedium
+                        font.bold: true
+                        color: Theme.primaryColor
+                        text: bridge.bridgePassword
+                        wrapMode: Text.Wrap
+                    }
+
+                    Button {
+                        text: "Copy Password"
+                        onClicked: {
+                            bridge.copyToClipboard(bridge.bridgePassword);
+                        }
                     }
                 }
             }
@@ -167,8 +307,8 @@ Page {
                 width: parent.width - 2*x
                 wrapMode: Text.Wrap
                 text: bridge.bridgePassword.length > 0
-                      ? ("Bridge password:\n" + bridge.bridgePassword)
-                      : "Generate a bridge password, then tap Copy and paste it in Settings → Accounts."
+                      ? "Bridge password replied! Tap Copy and paste it in Settings → Accounts."
+                      : "Enter your Proton credentials and tap Generate. When Proton prompts for verification, the local CAPTCHA address (http://127.0.0.1:...) opens directly in WebView."
             }
         }
     }
